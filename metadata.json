@@ -1,0 +1,6 @@
+{
+  "name": "Civic Quest",
+  "description": "An interactive civic educational mobile game teaching responsibility, cleanliness, safety, and values through gameplay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
