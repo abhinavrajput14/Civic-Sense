@@ -17,6 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RestartAlt
@@ -38,18 +40,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
 import com.example.ui.components.GameTopBar
 import com.example.viewmodel.GameViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun SettingsScreen(
@@ -224,6 +230,75 @@ fun SettingsScreen(
               color = Color(0xFF475569),
               lineHeight = 18.sp
             )
+          }
+        }
+
+        // Cloud Account & Sync Card
+        val context = LocalContext.current
+        val coroutineScope = rememberCoroutineScope()
+        val auth = remember { FirebaseAuth.getInstance() }
+        val currentUser = auth.currentUser
+
+        Card(
+          shape = RoundedCornerShape(22.dp),
+          colors = CardDefaults.cardColors(containerColor = Color.White),
+          elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                imageVector = Icons.Default.CloudDone,
+                contentDescription = null,
+                tint = Color(0xFF1976D2),
+                modifier = Modifier.size(22.dp)
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text(
+                text = "GOOGLE ACCOUNT & CLOUD SYNC",
+                fontWeight = FontWeight.Black,
+                fontSize = 12.sp,
+                color = Color(0xFF1976D2),
+                letterSpacing = 0.5.sp
+              )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+              text = if (currentUser?.email != null) "Connected: ${currentUser.email}" else "Signed in with Google",
+              fontWeight = FontWeight.Bold,
+              fontSize = 14.sp,
+              color = Color(0xFF1E293B)
+            )
+
+            Text(
+              text = "UID: ${currentUser?.uid?.take(12) ?: "Anonymous"}...",
+              fontSize = 12.sp,
+              color = Color(0xFF64748B)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+              onClick = {
+                val credManager = CredentialManager.create(context)
+                signOutUser(
+                  context = context,
+                  credentialManager = credManager,
+                  onSignOutComplete = {
+                    onBackClick()
+                  },
+                  scope = coroutineScope
+                )
+              },
+              modifier = Modifier.fillMaxWidth().testTag("settings_sign_out_button"),
+              shape = RoundedCornerShape(14.dp)
+            ) {
+              Icon(imageVector = Icons.Default.ExitToApp, contentDescription = null)
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(text = "SIGN OUT OF GOOGLE", fontWeight = FontWeight.Bold)
+            }
           }
         }
 

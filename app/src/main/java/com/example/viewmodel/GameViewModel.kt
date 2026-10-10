@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.SoundManager
+import com.example.data.CivicFirestoreRepository
 import com.example.data.CivicQuestDatabase
 import com.example.data.CivicQuestRepository
 import com.example.model.Accessory
@@ -11,38 +12,106 @@ import com.example.model.BadgesData
 import com.example.model.CharacterExpression
 import com.example.model.CharacterGender
 import com.example.model.CharacterProfile
+import com.example.model.CloudLevel
+import com.example.model.CloudLevelProgress
+import com.example.model.CloudQuestion
+import com.example.model.CloudUserProfile
 import com.example.model.GameState
 import com.example.model.HairColor
 import com.example.model.HairStyle
 import com.example.model.LevelCatalog
 import com.example.model.LevelCompletion
+import com.example.model.LevelInfo
 import com.example.model.OutfitStyle
 import com.example.model.PantsStyle
 import com.example.model.ShoesStyle
 import com.example.model.SkinTone
 import com.example.model.TShirtColor
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
   val soundManager = SoundManager()
 
-  private val repository = CivicQuestRepository(
+  private val localRepository = CivicQuestRepository(
     CivicQuestDatabase.getDatabase(application).civicQuestDao()
   )
+
+  val firestoreRepository = CivicFirestoreRepository(application)
 
   private val _gameState = MutableStateFlow(GameState())
   val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
+  private val _cloudLevels = MutableStateFlow<List<CloudLevel>>(emptyList())
+  val cloudLevels: StateFlow<List<CloudLevel>> = _cloudLevels.asStateFlow()
+
   init {
+    // 1. Load local state from Room
     viewModelScope.launch(Dispatchers.IO) {
-      val savedState = repository.loadGameState()
+      val savedState = localRepository.loadGameState()
       if (savedState != null) {
         _gameState.value = savedState
+      }
+    }
+
+    // 2. Observe dynamic cloud levels from Firestore
+    viewModelScope.launch(Dispatchers.IO) {
+      firestoreRepository.observeLevels()
+        .catch {
+          // Fallback gracefully on network interruptions
+        }
+        .collect { levels ->
+          _cloudLevels.value = levels
+        }
+    }
+
+    // 3. Sync user profile and completed levels with Firestore if authenticated
+    val auth = FirebaseAuth.getInstance()
+    val uid = auth.currentUser?.uid
+    if (uid != null) {
+      viewModelScope.launch(Dispatchers.IO) {
+        firestoreRepository.observeUserProfile(uid)
+          .catch { }
+          .collect { cloudProfile ->
+            if (cloudProfile != null) {
+              _gameState.update { current ->
+                current.copy(
+                  coins = maxOf(current.coins, cloudProfile.coins),
+                  xp = maxOf(current.xp, cloudProfile.xp),
+                  civicPoints = maxOf(current.civicPoints, cloudProfile.civicPoints),
+                  unlockedBadges = current.unlockedBadges + cloudProfile.unlockedBadges
+                )
+              }
+            }
+          }
+      }
+
+      viewModelScope.launch(Dispatchers.IO) {
+        firestoreRepository.observeUserProgress(uid)
+          .catch { }
+          .collect { progressList ->
+            if (progressList.isNotEmpty()) {
+              _gameState.update { current ->
+                val updatedCompleted = current.completedLevels.toMutableMap()
+                val updatedUnlocked = current.unlockedLevels.toMutableSet()
+                progressList.forEach { p ->
+                  updatedCompleted[p.levelId] = LevelCompletion(stars = p.stars, firstTry = p.firstTry)
+                  updatedUnlocked.add(p.levelId)
+                  updatedUnlocked.add(p.levelId + 1)
+                }
+                current.copy(
+                  completedLevels = updatedCompleted,
+                  unlockedLevels = updatedUnlocked
+                )
+              }
+            }
+          }
       }
     }
   }
@@ -51,9 +120,126 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val currentState = _gameState.value
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        repository.saveGameState(currentState)
+        localRepository.saveGameState(currentState)
       } catch (e: Exception) {
-        // Safe fallback in case of background persistence interruption
+        // Safe fallback
+      }
+
+      // Sync to cloud Firestore if user is authenticated
+      val auth = FirebaseAuth.getInstance()
+      val uid = auth.currentUser?.uid
+      if (uid != null) {
+        try {
+          val cloudProfile = CloudUserProfile(
+            userId = uid,
+            username = currentState.character.name,
+            coins = currentState.coins,
+            xp = currentState.xp,
+            civicPoints = currentState.civicPoints,
+            unlockedBadges = currentState.unlockedBadges.toList(),
+            characterName = currentState.character.name,
+            gender = currentState.character.gender.name,
+            skinTone = currentState.character.skinTone.name,
+            hairStyle = currentState.character.hairStyle.name,
+            hairColor = currentState.character.hairColor.name,
+            outfitColor = currentState.character.outfitStyle.name,
+            accessory = currentState.character.accessory.name
+          )
+          firestoreRepository.saveUserProfile(cloudProfile)
+        } catch (e: Exception) {
+          // Cloud sync will retry on next write
+        }
+      }
+    }
+  }
+
+  fun getDynamicLevel(levelId: Int): CloudLevel? {
+    return _cloudLevels.value.find { it.id == levelId }
+  }
+
+  /**
+   * Combines built-in catalog levels with any newly loaded cloud levels.
+   */
+  fun getAllCombinedLevels(): List<LevelInfo> {
+    val builtIn = LevelCatalog.LEVELS
+    val builtInIds = builtIn.map { it.id }.toSet()
+    val dynamicAsLevelInfo = _cloudLevels.value
+      .filter { it.id !in builtInIds }
+      .map { cloud ->
+        LevelInfo(
+          id = cloud.id,
+          title = cloud.title,
+          subtitle = cloud.subtitle,
+          topic = cloud.topic,
+          scenarioDescription = cloud.scenarioDescription,
+          objective = cloud.objective,
+          moralMessage = cloud.moralMessage,
+          rewardCoins = cloud.rewardCoins,
+          bonusCoinsFirstTry = cloud.bonusCoinsFirstTry,
+          rewardXp = cloud.rewardXp,
+          rewardCivicPoints = cloud.rewardCivicPoints,
+          badgeId = cloud.badgeId.ifBlank { null },
+          world = cloud.world,
+          worldTitle = cloud.worldTitle
+        )
+      }
+    return (builtIn + dynamicAsLevelInfo).sortedBy { it.id }
+  }
+
+  fun publishNewCloudLevel(
+    title: String,
+    subtitle: String,
+    topic: String,
+    scenario: String,
+    objective: String,
+    moral: String,
+    coins: Int = 100,
+    xp: Int = 150,
+    civicPoints: Int = 50,
+    choices: List<String> = emptyList(),
+    correctChoiceIndex: Int = 0,
+    onResult: (Boolean, String) -> Unit = { _, _ -> }
+  ) {
+    viewModelScope.launch(Dispatchers.IO) {
+      val existingIds = getAllCombinedLevels().map { it.id }
+      val nextId = (existingIds.maxOrNull() ?: 15) + 1
+      val worldId = if (nextId > 15) 4 else 3
+      val worldTitle = if (nextId > 15) "Digital & Emerging Civic Duties" else "Community Respect"
+
+      val questionsList = if (choices.isNotEmpty()) {
+        listOf(
+          CloudQuestion(
+            questionText = scenario,
+            options = choices,
+            correctIndex = correctChoiceIndex,
+            explanation = moral
+          )
+        )
+      } else emptyList()
+
+      val newLevel = CloudLevel(
+        id = nextId,
+        title = title,
+        subtitle = subtitle,
+        topic = topic,
+        scenarioDescription = scenario,
+        objective = objective,
+        moralMessage = moral,
+        rewardCoins = coins,
+        bonusCoinsFirstTry = 30,
+        rewardXp = xp,
+        rewardCivicPoints = civicPoints,
+        world = worldId,
+        worldTitle = worldTitle,
+        isPublished = true,
+        questions = questionsList
+      )
+
+      val result = firestoreRepository.saveLevel(newLevel)
+      if (result.isSuccess) {
+        onResult(true, "Level $nextId published to cloud live!")
+      } else {
+        onResult(false, result.exceptionOrNull()?.localizedMessage ?: "Failed to publish level")
       }
     }
   }
@@ -185,31 +371,52 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun completeLevel(levelId: Int, firstTry: Boolean = true) {
-    val level = LevelCatalog.getLevel(levelId) ?: return
-    val bonus = if (firstTry) level.bonusCoinsFirstTry else 0
-    val earnedCoins = level.rewardCoins + bonus
-    val earnedXp = level.rewardXp
-    val earnedCivic = level.rewardCivicPoints
+    completeDynamicLevel(
+      levelId = levelId,
+      stars = if (firstTry) 3 else 2,
+      firstTry = firstTry
+    )
+  }
+
+  fun completeDynamicLevel(
+    levelId: Int,
+    stars: Int = 3,
+    firstTry: Boolean = true,
+    coinsReward: Int? = null,
+    xpReward: Int? = null,
+    civicReward: Int? = null,
+    badgeId: String? = null
+  ) {
+    val level = LevelCatalog.getLevel(levelId)
+    val dynamic = getDynamicLevel(levelId)
+
+    val baseCoins = coinsReward ?: level?.rewardCoins ?: dynamic?.rewardCoins ?: 50
+    val bonus = if (firstTry) (level?.bonusCoinsFirstTry ?: dynamic?.bonusCoinsFirstTry ?: 20) else 0
+    val earnedCoins = baseCoins + bonus
+    val earnedXp = xpReward ?: level?.rewardXp ?: dynamic?.rewardXp ?: 100
+    val earnedCivic = civicReward ?: level?.rewardCivicPoints ?: dynamic?.rewardCivicPoints ?: 25
+    val effectiveBadge = badgeId ?: level?.badgeId ?: dynamic?.badgeId?.ifBlank { null }
 
     soundManager.playVictoryJingle(_gameState.value.soundEnabled)
 
+    val totalLevelsCount = getAllCombinedLevels().size
+
     _gameState.update { state ->
       val newUnlocked = state.unlockedLevels.toMutableSet()
-      if (levelId < LevelCatalog.LEVELS.size) {
+      if (levelId < totalLevelsCount) {
         newUnlocked.add(levelId + 1)
       }
 
       val newCompleted = state.completedLevels.toMutableMap()
       newCompleted[levelId] = LevelCompletion(
-        stars = if (firstTry) 3 else 2,
+        stars = stars,
         firstTry = firstTry
       )
 
       val newBadges = state.unlockedBadges.toMutableSet()
-      level.badgeId?.let { newBadges.add(it) }
+      effectiveBadge?.let { newBadges.add(it) }
 
-      // Check if all levels completed for ultimate badge
-      if (newCompleted.size >= LevelCatalog.LEVELS.size) {
+      if (newCompleted.size >= 15) {
         newBadges.add("responsible_citizen")
       }
 
@@ -224,6 +431,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
       )
     }
     persistState()
+
+    // Also persist level progress in Firestore
+    val auth = FirebaseAuth.getInstance()
+    val uid = auth.currentUser?.uid
+    if (uid != null) {
+      viewModelScope.launch(Dispatchers.IO) {
+        firestoreRepository.saveLevelProgress(
+          CloudLevelProgress(
+            levelId = levelId,
+            stars = stars,
+            firstTry = firstTry,
+            userId = uid
+          )
+        )
+      }
+    }
   }
 
   fun failLevel(levelId: Int) {
@@ -253,7 +476,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     _gameState.value = GameState(isCharacterCreated = false)
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        repository.resetAll()
+        localRepository.resetAll()
       } catch (e: Exception) {
         // Ignored
       }

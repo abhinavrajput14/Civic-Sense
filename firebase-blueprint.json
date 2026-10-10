@@ -1,0 +1,236 @@
+{
+  "entities": {
+    "Level": {
+      "title": "Level",
+      "description": "A playable civic education level or mission in CivicQuest.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Unique numeric level identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Level title"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Level subtitle or civic theme"
+        },
+        "topic": {
+          "type": "string",
+          "description": "Civic topic covered by this level"
+        },
+        "scenarioDescription": {
+          "type": "string",
+          "description": "Detailed real-world scenario narrative"
+        },
+        "objective": {
+          "type": "string",
+          "description": "Player goal in this level"
+        },
+        "moralMessage": {
+          "type": "string",
+          "description": "Civic moral takeaway"
+        },
+        "rewardCoins": {
+          "type": "integer",
+          "description": "Base coins awarded on completion"
+        },
+        "bonusCoinsFirstTry": {
+          "type": "integer",
+          "description": "Bonus coins awarded on first attempt"
+        },
+        "rewardXp": {
+          "type": "integer",
+          "description": "XP earned on completion"
+        },
+        "rewardCivicPoints": {
+          "type": "integer",
+          "description": "Civic points awarded"
+        },
+        "badgeId": {
+          "type": "string",
+          "description": "Identifier of badge unlocked"
+        },
+        "world": {
+          "type": "integer",
+          "description": "World index (1, 2, 3, etc.)"
+        },
+        "worldTitle": {
+          "type": "string",
+          "description": "Title of the world"
+        },
+        "isPublished": {
+          "type": "boolean",
+          "description": "Whether this level is live for players"
+        },
+        "authorId": {
+          "type": "string",
+          "description": "UID of author who created or updated the level"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when level was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when level was last updated"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "subtitle",
+        "topic",
+        "scenarioDescription",
+        "objective",
+        "moralMessage",
+        "rewardCoins",
+        "rewardXp",
+        "rewardCivicPoints",
+        "world",
+        "worldTitle",
+        "isPublished",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Player profile and synced civic stats in CivicQuest.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user"
+        },
+        "username": {
+          "type": "string",
+          "description": "Display name of the player"
+        },
+        "coins": {
+          "type": "integer",
+          "description": "Current coins balance"
+        },
+        "xp": {
+          "type": "integer",
+          "description": "Total XP accumulated"
+        },
+        "civicPoints": {
+          "type": "integer",
+          "description": "Total Civic Points"
+        },
+        "unlockedBadges": {
+          "type": "array",
+          "description": "List of unlocked badge IDs"
+        },
+        "characterName": {
+          "type": "string",
+          "description": "Customized character avatar name"
+        },
+        "gender": {
+          "type": "string",
+          "description": "Boy or Girl avatar gender"
+        },
+        "skinTone": {
+          "type": "string",
+          "description": "Selected skin tone color identifier"
+        },
+        "hairStyle": {
+          "type": "string",
+          "description": "Selected hairstyle identifier"
+        },
+        "hairColor": {
+          "type": "string",
+          "description": "Selected hair color identifier"
+        },
+        "outfitColor": {
+          "type": "string",
+          "description": "Selected outfit color identifier"
+        },
+        "accessory": {
+          "type": "string",
+          "description": "Selected accessory identifier"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account last update timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "username",
+        "coins",
+        "xp",
+        "civicPoints",
+        "unlockedBadges",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LevelProgress": {
+      "title": "LevelProgress",
+      "description": "Completion record for a specific level by a player.",
+      "type": "object",
+      "properties": {
+        "levelId": {
+          "type": "integer",
+          "description": "Numeric level ID completed"
+        },
+        "stars": {
+          "type": "integer",
+          "description": "Stars awarded (1 to 3)"
+        },
+        "firstTry": {
+          "type": "boolean",
+          "description": "Whether completed on the first attempt"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the player"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Completion timestamp"
+        }
+      },
+      "required": [
+        "levelId",
+        "stars",
+        "firstTry",
+        "userId",
+        "completedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/levels/{levelId}": {
+      "schema": {
+        "$ref": "#/entities/Level"
+      },
+      "description": "Collection of playable civic levels and missions"
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "User profile, character personalization, and overall stats"
+    },
+    "/users/{userId}/progress/{levelId}": {
+      "schema": {
+        "$ref": "#/entities/LevelProgress"
+      },
+      "description": "Level completion records and stars earned per level by the user"
+    }
+  }
+}

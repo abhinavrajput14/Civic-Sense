@@ -9,6 +9,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.levels.DynamicLevelScreen
 import com.example.ui.levels.Level01WrapperScreen
 import com.example.ui.levels.Level02SortWasteScreen
 import com.example.ui.levels.Level03TrafficLightScreen
@@ -31,6 +33,7 @@ import com.example.ui.levels.Level12SpeakWithRespectScreen
 import com.example.ui.levels.Level13DontDamageItScreen
 import com.example.ui.levels.Level14KeepItQuietScreen
 import com.example.ui.levels.Level15ShareTheSpaceScreen
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.BadgesScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LevelMapScreen
@@ -38,6 +41,7 @@ import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.WelcomeCharacterScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.GameViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 sealed interface GameScreen {
   object Welcome : GameScreen
@@ -54,9 +58,35 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
-        CivicQuestApp()
+        AppContent()
       }
     }
+  }
+}
+
+@Composable
+fun AppContent() {
+  val auth = FirebaseAuth.getInstance()
+  var currentUser by remember { mutableStateOf(auth.currentUser) }
+
+  DisposableEffect(Unit) {
+    val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+      currentUser = firebaseAuth.currentUser
+    }
+    auth.addAuthStateListener(listener)
+    onDispose {
+      auth.removeAuthStateListener(listener)
+    }
+  }
+
+  if (currentUser == null) {
+    AuthScreen(
+      onAuthSuccess = {
+        currentUser = FirebaseAuth.getInstance().currentUser
+      }
+    )
+  } else {
+    CivicQuestApp()
   }
 }
 
@@ -138,103 +168,126 @@ fun CivicQuestApp(gameViewModel: GameViewModel = viewModel()) {
         }
 
         is GameScreen.Level -> {
-          when (screen.id) {
-            1 -> Level01WrapperScreen(
+          val dynamicLevel = gameViewModel.getDynamicLevel(screen.id)
+          if (dynamicLevel != null && (screen.id > 15 || screen.id !in 1..15)) {
+            DynamicLevelScreen(
+              level = dynamicLevel,
               viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(2) },
+              onNextLevel = {
+                val nextId = screen.id + 1
+                currentScreen = GameScreen.Level(nextId)
+              },
               onLevelMap = { currentScreen = GameScreen.LevelMap }
             )
-
-            2 -> Level02SortWasteScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(3) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            3 -> Level03TrafficLightScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(4) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            4 -> Level04ZebraCrossingScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(5) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            5 -> Level05ProtectGreenScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(6) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            6 -> Level06SaveWaterScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(7) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            7 -> Level07QueueDisciplineScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(8) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            8 -> Level08BusEtiquetteScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(9) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            9 -> Level09PublicParkResponsibilityScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(10) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            10 -> Level10GrandFinaleScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(11) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            11 -> Level11HelpingHandScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(12) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            12 -> Level12SpeakWithRespectScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(13) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            13 -> Level13DontDamageItScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(14) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            14 -> Level14KeepItQuietScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.Level(15) },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            15 -> Level15ShareTheSpaceScreen(
-              viewModel = gameViewModel,
-              onNextLevel = { currentScreen = GameScreen.LevelMap },
-              onLevelMap = { currentScreen = GameScreen.LevelMap }
-            )
-
-            else -> {
-              LevelMapScreen(
+          } else {
+            when (screen.id) {
+              1 -> Level01WrapperScreen(
                 viewModel = gameViewModel,
-                onLevelSelected = { currentScreen = GameScreen.Level(it) },
-                onBackClick = { currentScreen = GameScreen.Home }
+                onNextLevel = { currentScreen = GameScreen.Level(2) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
               )
+
+              2 -> Level02SortWasteScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(3) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              3 -> Level03TrafficLightScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(4) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              4 -> Level04ZebraCrossingScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(5) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              5 -> Level05ProtectGreenScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(6) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              6 -> Level06SaveWaterScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(7) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              7 -> Level07QueueDisciplineScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(8) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              8 -> Level08BusEtiquetteScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(9) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              9 -> Level09PublicParkResponsibilityScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(10) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              10 -> Level10GrandFinaleScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(11) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              11 -> Level11HelpingHandScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(12) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              12 -> Level12SpeakWithRespectScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(13) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              13 -> Level13DontDamageItScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(14) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              14 -> Level14KeepItQuietScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.Level(15) },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              15 -> Level15ShareTheSpaceScreen(
+                viewModel = gameViewModel,
+                onNextLevel = { currentScreen = GameScreen.LevelMap },
+                onLevelMap = { currentScreen = GameScreen.LevelMap }
+              )
+
+              else -> {
+                val fallbackDynamic = gameViewModel.getDynamicLevel(screen.id)
+                if (fallbackDynamic != null) {
+                  DynamicLevelScreen(
+                    level = fallbackDynamic,
+                    viewModel = gameViewModel,
+                    onNextLevel = { currentScreen = GameScreen.LevelMap },
+                    onLevelMap = { currentScreen = GameScreen.LevelMap }
+                  )
+                } else {
+                  LevelMapScreen(
+                    viewModel = gameViewModel,
+                    onLevelSelected = { currentScreen = GameScreen.Level(it) },
+                    onBackClick = { currentScreen = GameScreen.Home }
+                  )
+                }
+              }
             }
           }
         }
